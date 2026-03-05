@@ -3,6 +3,6 @@ yfinance
 pandas
 groq
 streamlit-cookies-manager
-requests
 lxml
 html5lib
+requests

@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import requests
+import io
 from streamlit_cookies_manager import CookieManager
 from datetime import datetime
 from groq import Groq
@@ -55,7 +57,13 @@ st.markdown("메타(Meta)의 강력한 Llama 3 모델을 기반으로 한 차트
 @st.cache_data(show_spinner="상장종목 데이터를 불러오고 있습니다...")
 def load_krx_data():
     url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
-    df = pd.read_html(url, header=0)[0]
+    # 완벽한 일반 브라우저로 위장하는 신분증(Header)
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    
+    response = requests.get(url, headers=headers)
+    # 텍스트 데이터를 가상의 파일(StringIO)로 만들어 pandas가 읽게 함
+    df = pd.read_html(io.StringIO(response.text), header=0)[0]
+    
     # 종목코드를 6자리 문자열로 맞춤 (예: 5930 -> 005930)
     df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
     return df[['회사명', '종목코드']]
