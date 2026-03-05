@@ -1,5 +1,5 @@
 import streamlit as st
-import FinanceDataReader as fdr
+import pandas as pd
 from streamlit_cookies_manager import CookieManager
 from datetime import datetime
 from groq import Groq
@@ -51,46 +51,32 @@ if not api_key_input:
 st.title("🚀 AI 투자 위원회 분석 시스템")
 st.markdown("메타(Meta)의 강력한 Llama 3 모델을 기반으로 한 차트 및 거래량 심층 분석 리포트를 받아보세요.")
 
-# KRX 데이터 프레임 캐싱 로드
-@st.cache_data(show_spinner="한국거래소 상장종목 데이터를 불러오고 있습니다...")
+# KRX 데이터 프레임 캐싱 로드 (KIND 기업공시채널 활용)
+@st.cache_data(show_spinner="상장종목 데이터를 불러오고 있습니다...")
 def load_krx_data():
-    return fdr.StockListing('KRX')
+    url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
+    df = pd.read_html(url, header=0)[0]
+    # 종목코드를 6자리 문자열로 맞춤 (예: 5930 -> 005930)
+    df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
+    return df[['회사명', '종목코드']]
 
 df_krx = load_krx_data()
 
-# 종목 검색기 (FinanceDataReader 연동 한국어 패치)
+# 종목 검색기 (KIND 스크래핑 패치)
 with st.expander("🔍 티커(종목 코드) 찾기"):
     search_query = st.text_input("기업명 입력 (예: 삼성전자, 카카오):", key="search_query").strip()
     if st.button("검색"):
         if search_query:
             # 대소문자 구분 없이 포함된 문자열 검색
-            filtered_df = df_krx[df_krx['Name'].str.contains(search_query, case=False, na=False)]
+            filtered_df = df_krx[df_krx['회사명'].str.contains(search_query, case=False, na=False)]
             
             if not filtered_df.empty:
                 st.markdown(f"**'{search_query}'** 검색 결과 ({len(filtered_df)}건):")
                 
-                # 출력용 데이터 프레임 구성
-                display_list = []
-                for _, row in filtered_df.iterrows():
-                    name = row['Name']
-                    code = row['Code']
-                    market = row.get('Market', '')  # Market 컬럼이 없는 경우를 대비
-                    
-                    # 야후 파이낸스용 티커 변환 규칙 적용
-                    yahoo_ticker = code
-                    if 'KOSPI' in market:
-                        yahoo_ticker = f"{code}.KS"
-                    elif 'KOSDAQ' in market:
-                        yahoo_ticker = f"{code}.KQ"
-                        
-                    display_list.append({
-                        "기업명": name,
-                        "종목코드": code,
-                        "야후 티커 (입력용)": yahoo_ticker,
-                        "시장": market
-                    })
+                # 출력용 데이터 프레임 사용
+                st.dataframe(filtered_df, use_container_width=True)
                 
-                st.dataframe(display_list, use_container_width=True)
+                st.info("💡 **안내:** 코스피 종목은 검색된 6자리 코드 뒤에 `.KS`를, 코스닥 종목은 `.KQ`를 붙여서 메인 검색창에 입력해 주세요. (예: 삼성전자 ➡️ 005930.KS)")
             else:
                 st.warning("일치하는 종목이 없습니다.")
         else:

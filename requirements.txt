@@ -4,4 +4,5 @@ pandas
 groq
 streamlit-cookies-manager
 requests
-finance-datareader
+lxml
+html5lib
