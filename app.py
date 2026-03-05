@@ -1,4 +1,6 @@
 import streamlit as st
+import requests
+from streamlit_cookies_manager import CookieManager
 from datetime import datetime
 from groq import Groq
 from data_fetcher import get_stock_indicators
@@ -10,10 +12,34 @@ st.set_page_config(
     layout="wide"
 )
 
+# 쿠키 매니저 초기화
+cookies = CookieManager()
+if not cookies.ready():
+    st.stop()
+
+# Pretendard 폰트 강제 주입
+st.markdown("""
+<style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+html, body, [class*="css"]  {
+    font-family: 'Pretendard', sans-serif !important;
+    font-size: 16px !important;
+    line-height: 1.6;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # 사이드바: API 키 입력
 with st.sidebar:
     st.header("🔑 설정")
-    api_key_input = st.text_input("Groq API 키를 입력하세요 (gsk_...):", type="password")
+    saved_key = cookies.get('groq_api_key', '')
+    api_key_input = st.text_input("Groq API 키를 입력하세요 (gsk_...):", value=saved_key, type="password")
+    
+    # 새로운 키가 입력되면 쿠키에 저장
+    if api_key_input and api_key_input != saved_key:
+        cookies['groq_api_key'] = api_key_input
+        cookies.save()
+        
     st.markdown("---")
     st.markdown("API 키 발급은 [Groq Console](https://console.groq.com/keys)에서 가능합니다.")
 
@@ -24,6 +50,27 @@ if not api_key_input:
 # 메인 화면
 st.title("🚀 AI 투자 위원회 분석 시스템")
 st.markdown("메타(Meta)의 강력한 Llama 3 모델을 기반으로 한 차트 및 거래량 심층 분석 리포트를 받아보세요.")
+
+# 종목 검색기 (야후 파이낸스 연동)
+with st.expander("🔍 티커(종목 코드) 찾기"):
+    search_query = st.text_input("기업명 입력 (예: 삼성전자, Apple):", key="search_query")
+    if st.button("검색"):
+        if search_query:
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={search_query}"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            try:
+                response = requests.get(url, headers=headers)
+                data = response.json()
+                quotes = data.get("quotes", [])
+                if quotes:
+                    for q in quotes:
+                        shortname = q.get("shortname", "N/A")
+                        symbol = q.get("symbol", "N/A")
+                        st.markdown(f"- **{shortname}**: `{symbol}`")
+                else:
+                    st.write("검색 결과가 없습니다.")
+            except Exception as e:
+                st.error("검색 중 오류가 발생했습니다.")
 
 # 종목 입력
 ticker_input = st.text_input(
