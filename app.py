@@ -1,5 +1,5 @@
 import streamlit as st
-import requests
+import FinanceDataReader as fdr
 from streamlit_cookies_manager import CookieManager
 from datetime import datetime
 from groq import Groq
@@ -51,26 +51,50 @@ if not api_key_input:
 st.title("🚀 AI 투자 위원회 분석 시스템")
 st.markdown("메타(Meta)의 강력한 Llama 3 모델을 기반으로 한 차트 및 거래량 심층 분석 리포트를 받아보세요.")
 
-# 종목 검색기 (야후 파이낸스 연동)
+# KRX 데이터 프레임 캐싱 로드
+@st.cache_data(show_spinner="한국거래소 상장종목 데이터를 불러오고 있습니다...")
+def load_krx_data():
+    return fdr.StockListing('KRX')
+
+df_krx = load_krx_data()
+
+# 종목 검색기 (FinanceDataReader 연동 한국어 패치)
 with st.expander("🔍 티커(종목 코드) 찾기"):
-    search_query = st.text_input("기업명 입력 (예: 삼성전자, Apple):", key="search_query")
+    search_query = st.text_input("기업명 입력 (예: 삼성전자, 카카오):", key="search_query").strip()
     if st.button("검색"):
         if search_query:
-            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={search_query}"
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            try:
-                response = requests.get(url, headers=headers)
-                data = response.json()
-                quotes = data.get("quotes", [])
-                if quotes:
-                    for q in quotes:
-                        shortname = q.get("shortname", "N/A")
-                        symbol = q.get("symbol", "N/A")
-                        st.markdown(f"- **{shortname}**: `{symbol}`")
-                else:
-                    st.write("검색 결과가 없습니다.")
-            except Exception as e:
-                st.error("검색 중 오류가 발생했습니다.")
+            # 대소문자 구분 없이 포함된 문자열 검색
+            filtered_df = df_krx[df_krx['Name'].str.contains(search_query, case=False, na=False)]
+            
+            if not filtered_df.empty:
+                st.markdown(f"**'{search_query}'** 검색 결과 ({len(filtered_df)}건):")
+                
+                # 출력용 데이터 프레임 구성
+                display_list = []
+                for _, row in filtered_df.iterrows():
+                    name = row['Name']
+                    code = row['Code']
+                    market = row.get('Market', '')  # Market 컬럼이 없는 경우를 대비
+                    
+                    # 야후 파이낸스용 티커 변환 규칙 적용
+                    yahoo_ticker = code
+                    if 'KOSPI' in market:
+                        yahoo_ticker = f"{code}.KS"
+                    elif 'KOSDAQ' in market:
+                        yahoo_ticker = f"{code}.KQ"
+                        
+                    display_list.append({
+                        "기업명": name,
+                        "종목코드": code,
+                        "야후 티커 (입력용)": yahoo_ticker,
+                        "시장": market
+                    })
+                
+                st.dataframe(display_list, use_container_width=True)
+            else:
+                st.warning("일치하는 종목이 없습니다.")
+        else:
+            st.warning("검색할 기업명을 입력해주세요.")
 
 # 종목 입력
 ticker_input = st.text_input(
