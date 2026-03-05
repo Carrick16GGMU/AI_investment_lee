@@ -70,34 +70,94 @@ def load_krx_data():
 
 df_krx = load_krx_data()
 
-# 종목 검색기 (KIND 스크래핑 패치)
+# 해외 주식 한글 검색 사전 (Top 주요 종목 매핑)
+FOREIGN_TICKERS = {
+    '애플': 'AAPL', '테슬라': 'TSLA', '엔비디아': 'NVDA', '마이크로소프트': 'MSFT', '알파벳': 'GOOGL', 
+    '구글': 'GOOGL', '아마존': 'AMZN', '메타': 'META', '페이스북': 'META', '넷플릭스': 'NFLX', 
+    '스타벅스': 'SBUX', '테라다인': 'TER', '팔란티어': 'PLTR', '에이에스엠엘': 'ASML', '퀄컴': 'QCOM', 
+    '브로드컴': 'AVGO', '티에스엠씨': 'TSM', '일라이릴리': 'LLY', '노보노디스크': 'NVO', '코카콜라': 'KO', 
+    '펩시': 'PEP', '에이엠디': 'AMD', '인텔': 'INTC', '시스코': 'CSCO', '오라클': 'ORCL', 
+    '세일즈포스': 'CRM', '어도비': 'ADBE', '코스트코': 'COST', '월마트': 'WMT', '나이키': 'NKE', 
+    '보잉': 'BA', '록히드마틴': 'LMT', '존슨앤드존슨': 'JNJ', '유나이티드헬스': 'UNH', '머크': 'MRK', 
+    '애브비': 'ABBV', '제이피모건': 'JPM', '뱅크오브아메리카': 'BAC', '웰스파고': 'WFC', '비자': 'V', 
+    '마스터카드': 'MA', '페이팔': 'PYPL', '디즈니': 'DIS', '맥도날드': 'MCD', '홈디포': 'HD', 
+    '우버': 'UBER', '에어비앤비': 'ABNB', '쇼피파이': 'SHOP', '스노우플레이크': 'SNOW', '유니티': 'U', 
+    '로블록스': 'RBLX', '코인베이스': 'COIN', '암홀딩스': 'ARM'
+}
+
+# 종목 검색기 (KIND + 사전 + 야후API)
 with st.expander("🔍 티커(종목 코드) 찾기"):
-    search_query = st.text_input("기업명 입력 (예: 삼성전자, 카카오):", key="search_query").strip()
+    st.info("💡 안내: 해외 기업은 한국인들이 자주 찾는 Top 주요 종목의 한글 검색을 지원합니다. 한글로 검색되지 않는 기업은 기업의 영문명이나 티커를 직접 입력해 주세요.")
+    
+    search_query = st.text_input("기업명 입력 (예: 삼성전자, 애플, Apple):", key="search_query").strip()
     if st.button("검색"):
         if search_query:
-            # 대소문자 구분 없이 포함된 문자열 검색
-            filtered_df = df_krx[df_krx['회사명'].str.contains(search_query, case=False, na=False)]
+            display_list = []
             
-            if not filtered_df.empty:
-                st.markdown(f"**'{search_query}'** 검색 결과 ({len(filtered_df)}건):")
+            # 1. KRX 검색 (KIND 데이터)
+            filtered_df = df_krx[df_krx['회사명'].str.contains(search_query, case=False, na=False)]
+            for _, row in filtered_df.iterrows():
+                code = row['종목코드']
+                display_list.append({
+                    "기업/종목명": row['회사명'],
+                    "티커 (입력용)": f"{code}.KS (또는 .KQ)",
+                    "검색 출처": "국내 상장 주식 (KRX)"
+                })
+            
+            # 2. 자체 한글 사전 검색 (해외 주식)
+            for kr_name, ticker in FOREIGN_TICKERS.items():
+                if search_query.lower() in kr_name.lower():
+                    display_list.append({
+                        "기업/종목명": kr_name,
+                        "티커 (입력용)": ticker,
+                        "검색 출처": "해외 주식 (한글 사전)"
+                    })
+                    
+            # 3. 야후 파이낸스 영문 검색
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={search_query}"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+            try:
+                response = requests.get(url, headers=headers)
+                if response.status_code == 200:
+                    data = response.json()
+                    quotes = data.get("quotes", [])
+                    for q in quotes:
+                        shortname = q.get("shortname", "N/A")
+                        symbol = q.get("symbol", "N/A")
+                        quote_type = q.get("quoteType", "")
+                        # 주식/ETF 위주 필터링 (너무 잡다한 옵션 등 방지)
+                        if quote_type in ["EQUITY", "ETF"]:
+                            # 중복 방지 (이미 사전에 의해 추가된 티커일 수 있음)
+                            if not any(d.get("티커 (입력용)") == symbol for d in display_list):
+                                display_list.append({
+                                    "기업/종목명": shortname,
+                                    "티커 (입력용)": symbol,
+                                    "검색 출처": f"해외 주식 (Yahoo API - {quote_type})"
+                                })
+            except Exception:
+                pass
                 
-                # 출력용 데이터 프레임 사용
-                st.dataframe(filtered_df, use_container_width=True)
-                
-                st.info("💡 **안내:** 코스피 종목은 검색된 6자리 코드 뒤에 `.KS`를, 코스닥 종목은 `.KQ`를 붙여서 메인 검색창에 입력해 주세요. (예: 삼성전자 ➡️ 005930.KS)")
+            if display_list:
+                st.markdown(f"**'{search_query}'** 통합 검색 결과 ({len(display_list)}건):")
+                st.dataframe(display_list, use_container_width=True)
+                st.info("💡 **안내:** 국내 종목의 경우, 코스피는 `.KS`, 코스닥은 `.KQ`를 붙여서 메인 검색창에 입력해 주세요. (예: 삼성전자 ➡️ 005930.KS)")
             else:
                 st.warning("일치하는 종목이 없습니다.")
         else:
             st.warning("검색할 기업명을 입력해주세요.")
 
-# 종목 입력
-ticker_input = st.text_input(
-    "🔍 분석할 종목의 티커를 입력하세요 (예: AAPL, TSLA, 005930.KS):", 
-    placeholder="종목 티커 입력"
-).strip().upper()
+# 종목 입력 및 분석 실행 (Form 구조 - Enter 키 지원)
+with st.form(key="analyze_form"):
+    ticker_input = st.text_input(
+        "🔍 분석할 종목의 티커를 입력하세요 (예: AAPL, TSLA, 005930.KS):", 
+        placeholder="종목 티커 입력"
+    ).strip().upper()
+    
+    # 실행 버튼 (form 내에서는 st.form_submit_button 사용)
+    submit_button = st.form_submit_button("🚀 AI 분석 시작", type="primary")
 
-# 실행 버튼
-if st.button("🚀 AI 분석 시작", type="primary"):
+# 폼 제출 시 실행 트리거
+if submit_button:
     if not ticker_input:
         st.warning("티커를 입력해 주세요.", icon="🚫")
     else:
